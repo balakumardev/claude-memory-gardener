@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Memory Gardener a few times a day
+
+[Timer]
+OnCalendar=*-*-* 03:17
+OnCalendar=*-*-* 13:47
+OnCalendar=*-*-* 20:23
+Persistent=true
+
+[Install]
+WantedBy=timers.target

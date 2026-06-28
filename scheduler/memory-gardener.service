@@ -1,0 +1,7 @@
+[Unit]
+Description=Claude Code Memory Gardener
+
+[Service]
+Type=oneshot
+WorkingDirectory=__REPO__
+ExecStart=__PYTHON__ -m gardener run
