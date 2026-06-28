@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import sys, time
+import sys, time, json, datetime
 
 
 def main(argv=None):
@@ -20,7 +20,6 @@ def main(argv=None):
         from .config import config_for
         from .migrate import migrate as _migrate
         from pathlib import Path
-        import datetime
         # date passed explicitly to keep the function pure/testable
         out = _migrate(config_for(Path.home()),
                        now_date=datetime.date.today().isoformat())
@@ -30,7 +29,6 @@ def main(argv=None):
         from .config import config_for
         from .status import collect
         from pathlib import Path
-        import time, json
         print(json.dumps(collect(config_for(Path.home()), now=time.time()), indent=2))
         return 0
     print(f"unknown command: {cmd}", file=sys.stderr)

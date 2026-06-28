@@ -89,6 +89,32 @@ python3 -m gardener migrate   # one-time relocation of existing native memory
 
 Or just let the scheduler run it a few times a day. Watch the first run's `git -C ~/.claude/memory diff` to see what it distills before trusting it unattended.
 
+## Custom model & MCP routing
+
+By default the Gardener runs `claude` with the `haiku` model and no MCP servers. You can point it at a different model, endpoint, binary, or a scoped set of MCP servers entirely through environment variables — no code changes — by exporting them in whatever launches the run (your launchd/systemd unit, or a wrapper script):
+
+| Env var | Effect | Default |
+|---|---|---|
+| `GARDENER_MODEL` | value passed to `--model` | `haiku` |
+| `GARDENER_CLAUDE_BIN` | path/name of the `claude` binary | `claude` |
+| `GARDENER_MCP_CONFIG` | path to an MCP config; when set, runs `--strict-mcp-config --mcp-config <path>` so **only** those servers load (a background run shouldn't boot your heavy project MCP servers) | none |
+| `GARDENER_TOOLS_EXTRA` | extra tool name(s) appended to `--tools`, e.g. an MCP tool | none |
+| `GARDENER_EXTRA_ARGS` | extra flags appended verbatim | none |
+
+Any `ANTHROPIC_*` provider env (base URL, key, model aliases) is passed through to the `claude` subprocess, so routing through an Anthropic-compatible proxy works the same way.
+
+**Example** — route the Gardener through an OpenAI/GLM-style proxy and expose only a code-index MCP server:
+
+```sh
+# in your scheduler's environment / wrapper:
+export ANTHROPIC_BASE_URL="https://your-proxy.example"
+export ANTHROPIC_API_KEY="sk-..."
+export GARDENER_MODEL="your-model-id"
+export GARDENER_MCP_CONFIG="$HOME/.config/gardener/mcp.json"   # {"mcpServers": {"code-index": {...}}}
+export GARDENER_TOOLS_EXTRA="mcp__code-index__search"
+python3 -m gardener run
+```
+
 ## Cross-machine sync
 
 Point the memory repo at a **private** remote (your memory is personal — keep the remote private):

@@ -62,6 +62,7 @@ def run_once(cfg: dict, now: float, agent_fn=_agent.run_agent, git_cls=GitMemory
         by_key = {}
         for t in transcripts:
             by_key.setdefault(t.key, []).append(t)
+        committed_any = False
         for key, items in by_key.items():
             cwd = next((t.cwd for t in items if t.cwd), None)
             if not cwd:
@@ -79,6 +80,9 @@ def run_once(cfg: dict, now: float, agent_fn=_agent.run_agent, git_cls=GitMemory
                 regenerate_index(mem_dir)
                 for t in items:  # advance only on success → failed project retries next run
                     wm.advance(t.session, t.mtime)
+                wm.save()  # checkpoint per project → a kill resumes instead of redoing
+                if gm.commit_if_changed(f"garden: {name} ({len(items)} sessions)"):
+                    committed_any = True
                 summary["processed"] += len(items)
                 summary["projects"] += 1
                 for f in digest_dir.glob("*.md"):
@@ -89,9 +93,9 @@ def run_once(cfg: dict, now: float, agent_fn=_agent.run_agent, git_cls=GitMemory
                     f"project {key}: {traceback.format_exc()}\n")
                 print(f"gardener: skipped project {key} (see errors.log)", file=sys.stderr)
                 continue
-        summary["committed"] = gm.commit_if_changed(
-            f"garden: {summary['processed']} sessions across {summary['projects']} projects")
-        if summary["committed"]:
+        # per-project commits already landed locally; push the batch once at the end
+        summary["committed"] = committed_any
+        if committed_any:
             gm.push()
         wm.save()
         return summary
