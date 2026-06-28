@@ -73,3 +73,34 @@ def test_build_command_no_mcp_by_default(tmp_path):
                               tmp_path / "dig", model="haiku", tools="Read",
                               claude_bin="claude")
     assert "--strict-mcp-config" not in cmd and "--mcp-config" not in cmd
+
+
+def test_run_agent_does_not_capture_output(tmp_path):
+    # Capturing creates pipes that long-lived MCP-daemon grandchildren inherit
+    # and hold open, deadlocking us after the agent exits. Must use DEVNULL + a
+    # timeout instead.
+    import subprocess
+    prompt = tmp_path / "p.md"; prompt.write_text("x")
+    captured = {}
+    class R:
+        returncode = 0
+    def fake_runner(cmd, **kw):
+        captured.update(kw); return R()
+    from gardener.config import config_for
+    agent.run_agent(prompt, tmp_path / "mem", tmp_path / "repo", tmp_path / "dig",
+                    config_for(tmp_path), runner=fake_runner)
+    assert "capture_output" not in captured
+    assert captured.get("stdout") == subprocess.DEVNULL
+    assert captured.get("stderr") == subprocess.DEVNULL
+    assert isinstance(captured.get("timeout"), (int, float))
+
+
+def test_run_agent_timeout_is_fail_open(tmp_path):
+    import subprocess
+    prompt = tmp_path / "p.md"; prompt.write_text("x")
+    def boom(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+    from gardener.config import config_for
+    rc = agent.run_agent(prompt, tmp_path / "mem", tmp_path / "repo", tmp_path / "dig",
+                         config_for(tmp_path), runner=boom)
+    assert rc == 124  # non-zero so the run continues to the next project

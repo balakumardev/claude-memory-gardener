@@ -59,12 +59,26 @@ def resolve_config(env: dict) -> dict:
     }
 
 
+# Hard backstop on a single agent invocation (a wrapper may impose a tighter
+# one). Bounds any hang so one project can never wedge the whole run.
+AGENT_TIMEOUT = 2000
+
+
 def run_agent(prompt_path, mem_dir, repo, digest_dir, cfg, runner=subprocess.run):
     c = resolve_config(os.environ)
     cmd = build_command(prompt_path, mem_dir, repo, digest_dir,
                         c["model"], c["tools"], c["claude_bin"],
                         mcp_config=c["mcp_config"], extra_args=c["extra_args"])
     Path(mem_dir).mkdir(parents=True, exist_ok=True)
-    proc = runner(cmd, cwd=str(cfg["GARDENER_DIR"]), env=build_env(os.environ),
-                  capture_output=True, text=True)
-    return proc.returncode
+    # Do NOT capture output. We only use the return code, and capturing creates
+    # stdout/stderr pipes that long-lived MCP daemons spawned as the agent's
+    # grandchildren inherit and hold open — so reading-to-EOF deadlocks forever
+    # after the agent itself exits. DEVNULL avoids the pipe entirely; the agent
+    # records its own transcript under ~/.claude/projects/<gardener>/ if needed.
+    try:
+        proc = runner(cmd, cwd=str(cfg["GARDENER_DIR"]), env=build_env(os.environ),
+                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL, timeout=AGENT_TIMEOUT)
+        return proc.returncode
+    except subprocess.TimeoutExpired:
+        return 124
