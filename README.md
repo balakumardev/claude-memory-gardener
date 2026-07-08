@@ -70,16 +70,33 @@ It is a thin layer **on top of** Claude Code's memory, not a replacement: the na
 ```bash
 git clone https://github.com/balakumardev/claude-memory-gardener
 cd claude-memory-gardener
-./install.sh
+./setup.sh          # full turnkey install (recommended)
 ```
 
-`install.sh` resolves a stable system Python, runs the one-time migration of any existing native memory into the git-backed store (your originals are renamed `*.pre-migration.bak`, never deleted), and installs the scheduler (launchd on macOS, a systemd timer on Linux).
+Two installers ship with the repo:
+
+- **`./setup.sh` — recommended, turnkey.** In addition to the migration + scheduler, it installs the pieces that make a background agent safe and cheap to run unattended:
+  - a **routing/isolation shim** (`~/.claude/gardener/bin/claude`) so the gardener runs in its own config (no inherited hooks/notifications) and can be pointed at a **cheap model** — edit `~/.claude/gardener/gardener.env` (seeded from [`setup/gardener.env.example`](setup/gardener.env.example)); otherwise batch gardening uses your normal `claude` auth + default model;
+  - a **deny-rule backstop** (`~/.claude/gardener-config/settings.json`) that blocks the autonomous agent from ever writing your hooks/settings/plugins, even under `bypassPermissions`;
+  - the scheduler with **catch-up** (see below);
+  - an optional MCP config (`~/.claude/gardener/mcp.json`) for code search (e.g. auggie).
+  Re-running `setup.sh` refreshes the generated shim/`run.sh`/plist but never clobbers your `gardener.env` or a customized deny config.
+
+- **`./install.sh` — minimal.** Migration + scheduler only; the gardener runs with your default `claude` and settings. Fine for a quick try; prefer `setup.sh` for real use.
 
 For the **home project** (a bare `~`), add one line to `~/.claude/settings.json` so Claude reads from the new location:
 
 ```json
 { "autoMemoryDirectory": "~/.claude/memory/home" }
 ```
+
+### Never-miss scheduling (catch-up)
+
+By default a macOS `StartCalendarInterval` job only catches up a missed run when the Mac **wakes from sleep** — not after it was **off or logged out** at the scheduled time. `setup.sh` closes that gap: the plist gets `RunAtLoad` (fires at login/boot) and `run.sh` carries a **time-gate** — so a run missed while the machine was off/asleep/logged-out executes at your next login, while frequent logins don't trigger redundant runs (a run within the last few hours is skipped; scheduled slots are >6h apart so a real slot is never dropped). On Linux the systemd timer uses `Persistent=true` for the same effect.
+
+### Safety model
+
+Letting an LLM edit your memory, skills, and global `CLAUDE.md` unattended is only safe because of layered guardrails: **git is the undo** (every run is a reviewable, revertible commit; `~/.claude` becomes a whitelist repo tracking only `CLAUDE.md` + `skills/` for the curator's edits), the **deny backstop** makes sensitive paths structurally unwritable, and the **stage-2 curator runs Bash-free** so it can't shell around those deny rules. Disable stage-2 entirely with `GARDENER_NO_CURATE=1`.
 
 ## Usage
 
