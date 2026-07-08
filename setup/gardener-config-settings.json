@@ -1,0 +1,23 @@
+{
+  "_comment": "Deny-rule backstop for the background gardener. Installed to ~/.claude/gardener-config/settings.json and applied because the shim sets CLAUDE_CONFIG_DIR here. Deny rules are honored even under bypassPermissions, so even though the gardener writes autonomously it can never touch these paths. Uses ~/ (home-anchored) globs, which are portable across machines. The gardener's legitimate surface (~/.claude/memory, ~/.claude/skills, ~/.claude/CLAUDE.md, and your project repos) is deliberately NOT denied.",
+  "permissions": {
+    "deny": [
+      "Edit(~/.claude/hooks/**)",
+      "Write(~/.claude/hooks/**)",
+      "Edit(~/.claude/settings.json)",
+      "Write(~/.claude/settings.json)",
+      "Edit(~/.claude/settings.local.json)",
+      "Write(~/.claude/settings.local.json)",
+      "Edit(~/.claude/plugins/**)",
+      "Write(~/.claude/plugins/**)",
+      "Edit(~/.claude/projects/**)",
+      "Write(~/.claude/projects/**)",
+      "Edit(~/.claude/commands/**)",
+      "Write(~/.claude/commands/**)",
+      "Edit(~/.claude/agents/**)",
+      "Write(~/.claude/agents/**)",
+      "Edit(~/.claude/gardener-config/**)",
+      "Write(~/.claude/gardener-config/**)"
+    ]
+  }
+}

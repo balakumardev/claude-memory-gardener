@@ -104,3 +104,43 @@ def test_run_agent_timeout_is_fail_open(tmp_path):
     rc = agent.run_agent(prompt, tmp_path / "mem", tmp_path / "repo", tmp_path / "dig",
                          config_for(tmp_path), runner=boom)
     assert rc == 124  # non-zero so the run continues to the next project
+
+
+def test_build_command_curation_inputs(tmp_path):
+    (tmp_path / "p.md").write_text("q={candidates_file} idx={skills_index}")
+    cmd = agent.build_command(tmp_path / "p.md", tmp_path / "mem", tmp_path / "repo",
+                              tmp_path / "dig", model="haiku", tools="Read",
+                              claude_bin="claude",
+                              candidates_file=tmp_path / "c.md",
+                              skills_index=tmp_path / "idx.md",
+                              curator_dir=tmp_path / "_curator")
+    prompt = cmd[cmd.index("-p") + 1]
+    assert str(tmp_path / "c.md") in prompt and str(tmp_path / "idx.md") in prompt
+    assert cmd.count("--add-dir") == 3
+    assert cmd[-1] == str(tmp_path / "_curator")
+
+
+def test_run_agent_passes_cfg_curation_paths(tmp_path):
+    prompt = tmp_path / "p.md"
+    prompt.write_text("mem={mem_dir} q={candidates_file} idx={skills_index}")
+    captured = {}
+    class R:
+        returncode = 0
+    def fake_runner(cmd, **kw):
+        captured["cmd"] = cmd; captured["prompt"] = cmd[cmd.index("-p") + 1]; return R()
+    from gardener.config import config_for
+    cfg = config_for(tmp_path)
+    agent.run_agent(prompt, tmp_path / "mem", tmp_path / "repo", tmp_path / "dig",
+                    cfg, runner=fake_runner)
+    assert str(cfg["CANDIDATES_FILE"]) in captured["prompt"]
+    assert str(cfg["SKILLS_INDEX_FILE"]) in captured["prompt"]
+    assert str(cfg["CURATOR_DIR"]) in captured["cmd"]
+
+
+def test_resolve_config_curator_model_precedence():
+    from gardener.config import MODEL
+    assert agent.resolve_config({})["curator_model"] == MODEL
+    assert agent.resolve_config({"GARDENER_MODEL": "m1"})["curator_model"] == "m1"
+    assert agent.resolve_config(
+        {"GARDENER_MODEL": "m1", "GARDENER_CURATOR_MODEL": "m2"})["curator_model"] == "m2"
+    assert agent.resolve_config({"GARDENER_CURATOR_MODEL": "m2"})["curator_model"] == "m2"

@@ -3,15 +3,18 @@ from __future__ import annotations
 import os, sys, time, traceback
 from pathlib import Path
 from . import agent as _agent
+from . import curator as _curator
 from .config import IDLE_SECONDS, STALE_LOCK_SECONDS
 from .distiller import distill
-from .gitmemory import GitMemory
+from .gitmemory import GitMemory, KitGit
 from .memindex import regenerate_index
 from .resolver import logical_name, ensure_pointer
 from .scanner import scan
+from .skillindex import regenerate_skills_index
 from .watermark import Watermark
 
 PROMPT = Path(__file__).resolve().parent.parent / "prompts" / "gardener.md"
+CURATOR_PROMPT = Path(__file__).resolve().parent.parent / "prompts" / "curator.md"
 
 
 def _create_lock(lock_file: Path) -> bool:
@@ -50,13 +53,21 @@ def release_lock(lock_file: Path) -> None:
         pass
 
 
-def run_once(cfg: dict, now: float, agent_fn=_agent.run_agent, git_cls=GitMemory) -> dict:
-    summary = {"processed": 0, "projects": 0, "committed": False}
+def run_once(cfg: dict, now: float, agent_fn=_agent.run_agent, git_cls=GitMemory,
+             curator_fn=_curator.run_curator, kit_cls=KitGit) -> dict:
+    summary = {"processed": 0, "projects": 0, "committed": False, "curated": False}
     if not acquire_lock(cfg["LOCK_FILE"]):
         print("gardener: lock held, skipping run", file=sys.stderr)
         return summary
     try:
         gm = git_cls(cfg["MEMORY_ROOT"]); gm.bootstrap(); gm.pull()
+        try:  # skills inventory is an input hint for the agents; never blocks a run
+            regenerate_skills_index(cfg["SKILLS_DIR"], cfg["SKILLS_INDEX_FILE"])
+        except Exception:
+            cfg["LOG_DIR"].mkdir(parents=True, exist_ok=True)
+            (cfg["LOG_DIR"] / "errors.log").open("a").write(
+                f"skillindex: {traceback.format_exc()}\n")
+        cfg["CANDIDATES_FILE"].parent.mkdir(parents=True, exist_ok=True)
         wm = Watermark(cfg["STATE_FILE"])
         transcripts = scan(cfg["PROJECTS_DIR"], wm, now, cfg["GARDENER_DIR"], IDLE_SECONDS)
         by_key = {}
@@ -93,6 +104,25 @@ def run_once(cfg: dict, now: float, agent_fn=_agent.run_agent, git_cls=GitMemory
                     f"project {key}: {traceback.format_exc()}\n")
                 print(f"gardener: skipped project {key} (see errors.log)", file=sys.stderr)
                 continue
+        # ---- stage 2: cross-project curator (single writer for ~/.claude) ----
+        # Gate: sessions processed AND observations queued AND kill switch unset.
+        if (summary["projects"] and not os.environ.get("GARDENER_NO_CURATE")
+                and _curator.pending_candidates(cfg["CANDIDATES_FILE"])):
+            try:  # fail-open: a bad curate never blocks memory work or the push
+                kit = kit_cls(cfg["CLAUDE_DIR"]); kit.bootstrap()
+                # capture the user's hand-edits first so the curate diff is isolated
+                kit.commit_if_changed("chore: snapshot manual edits")
+                curator_fn(CURATOR_PROMPT, cfg)
+                if gm.commit_if_changed("curate: candidates queue"):
+                    committed_any = True
+                if kit.commit_if_changed("curate: skills + CLAUDE.md"):
+                    summary["curated"] = True
+                kit.push()
+            except Exception:
+                cfg["LOG_DIR"].mkdir(parents=True, exist_ok=True)
+                (cfg["LOG_DIR"] / "errors.log").open("a").write(
+                    f"curator: {traceback.format_exc()}\n")
+                print("gardener: curator failed (see errors.log)", file=sys.stderr)
         # per-project commits already landed locally; push the batch once at the end
         summary["committed"] = committed_any
         if committed_any:

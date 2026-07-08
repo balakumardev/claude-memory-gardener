@@ -4,7 +4,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue)
 ![Dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen)
-![Tests](https://img.shields.io/badge/tests-45%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-77%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-black)
 
 Claude Code already writes itself memory notes as you work and reloads them next session. But those notes only get written when Claude happens to decide to, they drift out of date, and they never leave the machine they were born on. **Memory Gardener** closes those three gaps without replacing anything native:
@@ -12,6 +12,7 @@ Claude Code already writes itself memory notes as you work and reloads them next
 - **Completeness** — it sweeps your session transcripts *after the fact* and distills the durable facts that never got saved live.
 - **Freshness** — it reconciles new facts against old ones, marking superseded entries instead of letting contradictions pile up.
 - **Portability** — it relocates memory to a stable, git-backed store so the same knowledge follows you across laptops and servers.
+- **Skill & instruction curation** — it grows your skill library and global `CLAUDE.md` from what sessions actually do: new skills from recurring workflows, trigger-description fixes when a skill *should* have fired but didn't, variant/stale updates to existing skills — every change an isolated, revertible git commit.
 
 It is a thin layer **on top of** Claude Code's memory, not a replacement: the native loader still does all the reading and recall. The Gardener only writes.
 
@@ -47,6 +48,7 @@ It is a thin layer **on top of** Claude Code's memory, not a replacement: the na
 2. **Distill** — pure-Python, deterministic noise stripping: drops tool output, thinking blocks, and injected context, leaving a compact digest (~90% smaller) of what was actually said.
 3. **Extract & reconcile** — one cheap `claude -p` call per project pulls durable facts (preferences, decisions, conventions, gotchas) and reconciles them against existing memory: skip duplicates, update with new detail, mark contradictions `[SUPERSEDED yyyy-mm-dd]` (never hard-delete), create genuinely new entries. Standing rules can be routed into the project's `CLAUDE.md`.
 4. **Commit & sync** — every run is one git commit in the memory repo. `*.md merge=union` plus a regenerated index means two machines writing at once converge automatically — no human ever resolves a conflict.
+5. **Curate (stage 2)** — per-project agents also tend `<repo>/.claude/skills/` and queue cross-project observations (`NEW` / `MISSED-TRIGGER` / `VARIANT` / `STALE`) into `~/.claude/memory/_curator/candidates.md`. When the queue is non-empty, a single curator agent — the only writer for global state — folds them into `~/.claude/CLAUDE.md` and `~/.claude/skills/`: a new global skill needs the same observation twice (or an explicit "always do X"), a missed trigger needs just one quoted phrasing to extend a skill's description. `~/.claude` becomes a whitelist git repo (only `CLAUDE.md` + `skills/` tracked), with your manual edits snapshotted separately (`chore: snapshot manual edits`) so every `curate: skills + CLAUDE.md` commit is exactly the curator's diff: `git -C ~/.claude revert <sha>` undoes any curate. Set `GARDENER_NO_CURATE=1` to disable stage 2 entirely.
 
 ## Design principles
 
@@ -100,6 +102,8 @@ By default the Gardener runs `claude` with the `haiku` model and no MCP servers.
 | `GARDENER_MCP_CONFIG` | path to an MCP config; when set, runs `--strict-mcp-config --mcp-config <path>` so **only** those servers load (a background run shouldn't boot your heavy project MCP servers) | none |
 | `GARDENER_TOOLS_EXTRA` | extra tool name(s) appended to `--tools`, e.g. an MCP tool | none |
 | `GARDENER_EXTRA_ARGS` | extra flags appended verbatim | none |
+| `GARDENER_CURATOR_MODEL` | model for the stage-2 curator (skills/global-CLAUDE.md judgment); falls back to `GARDENER_MODEL` | `GARDENER_MODEL` |
+| `GARDENER_NO_CURATE` | set to `1` to disable stage-2 curation and the `~/.claude` kit repo entirely | unset |
 
 Any `ANTHROPIC_*` provider env (base URL, key, model aliases) is passed through to the `claude` subprocess, so routing through an Anthropic-compatible proxy works the same way.
 
@@ -139,10 +143,12 @@ A small, focused Python package — each module has one responsibility and is in
 | `gitmemory` | Bootstrap, union-merge, scale-guard, push-retry |
 | `resolver` | Stable logical-name keys + `autoMemoryDirectory` pointers |
 | `runner` | Orchestrate the pipeline; fail-open per project; stale-lock recovery |
+| `skillindex` | Deterministic inventory of global skills (missed-trigger detection input) |
+| `curator` | Stage-2 agent: single writer for global skills + global `CLAUDE.md` |
 | `migrate` | One-time lossless relocation of existing memory |
 
 ```bash
-python3 -m pytest    # 45 tests, standard library + pytest only
+python3 -m pytest    # 77 tests, standard library + pytest only
 ```
 
 ## License

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from gardener.gitmemory import GitMemory
+from gardener.gitmemory import GitMemory, KitGit
 
 
 def _has_git():
@@ -76,3 +76,57 @@ def test_push_retries_via_pull_on_divergence(tmp_path):
     assert (c / "a.md").read_text() == "from A"
     assert (c / "a2.md").read_text() == "from A again"
     assert (c / "b.md").read_text() == "from B"
+
+
+def test_kit_bootstrap_whitelists_claude_md_and_skills(tmp_path):
+    claude = tmp_path / ".claude"; claude.mkdir()
+    (claude / "CLAUDE.md").write_text("# global\n")
+    (claude / "skills" / "foo").mkdir(parents=True)
+    (claude / "skills" / "foo" / "SKILL.md").write_text("---\nname: foo\ndescription: d\n---\n")
+    (claude / "projects").mkdir(); (claude / "projects" / "t.jsonl").write_text("x")
+    (claude / "settings.json").write_text("{}")
+    kit = KitGit(claude); kit.bootstrap()
+    assert kit.commit_if_changed("snapshot") is True
+    tracked = kit._git("ls-files").stdout.splitlines()
+    assert "CLAUDE.md" in tracked
+    assert "skills/foo/SKILL.md" in tracked
+    assert not any(t.startswith("projects/") for t in tracked)
+    assert "settings.json" not in tracked
+
+
+def test_kit_bootstrap_idempotent_and_preserves_existing_gitignore(tmp_path):
+    claude = tmp_path / ".claude"; claude.mkdir()
+    (claude / ".gitignore").write_text("custom\n")
+    kit = KitGit(claude); kit.bootstrap(); kit.bootstrap()
+    assert (claude / ".gitignore").read_text() == "custom\n"   # never clobbered
+    assert (claude / ".git").is_dir()
+    log = kit._git("log", "--oneline").stdout.strip().splitlines()
+    assert len(log) == 1   # second bootstrap() did not create a second init commit
+
+
+def test_kit_ignores_nested_memory_repo(tmp_path):
+    claude = tmp_path / ".claude"; claude.mkdir()
+    GitMemory(claude / "memory").bootstrap()                   # the nested memory repo
+    (claude / "CLAUDE.md").write_text("x")
+    kit = KitGit(claude); kit.bootstrap()
+    kit.commit_if_changed("snap")
+    assert "memory" not in kit._git("ls-files").stdout
+
+
+def test_kit_excludes_embedded_git_skill(tmp_path):
+    claude = tmp_path / ".claude"; claude.mkdir()
+    (claude / "CLAUDE.md").write_text("# g\n")
+    # a normal skill and a vendored skill that carries its own .git
+    (claude / "skills" / "normal").mkdir(parents=True)
+    (claude / "skills" / "normal" / "SKILL.md").write_text("---\nname: normal\ndescription: d\n---\n")
+    vend = claude / "skills" / "vendored"; vend.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(vend)], check=True, capture_output=True)
+    (vend / "SKILL.md").write_text("---\nname: vendored\ndescription: d\n---\n")
+    kit = KitGit(claude); kit.bootstrap()
+    assert kit.commit_if_changed("snap") is True
+    tracked = kit._git("ls-files").stdout.splitlines()
+    assert "skills/normal/SKILL.md" in tracked
+    # vendored skill must be fully excluded — no files, and crucially no gitlink
+    assert not any(t.startswith("skills/vendored") for t in tracked)
+    ls = kit._git("ls-files", "-s").stdout
+    assert "160000" not in ls   # no gitlink entry anywhere
