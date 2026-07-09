@@ -11,11 +11,17 @@ def _prompt(tmp_path):
     return p
 
 
-def test_pending_candidates_counts_only_bullet_lines(tmp_path):
+def test_pending_candidates_counts_dated_entries(tmp_path):
     f = tmp_path / "candidates.md"
     assert curator.pending_candidates(f) == 0                    # missing file
-    f.write_text("# note\n\n- 2026-07-08 | p | NEW | a | e\n"
-                 "- 2026-07-08 | q | NEW | b | e\nnot a bullet\n")
+    f.write_text(
+        "# Global Observation Queue\n\n"
+        "Append-only. A separate curator consumes this file.\n\n"
+        "Format: `YYYY-MM-DD | <project> | NEW | <one-line summary> | evidence: <quote or what happened>`\n\n"
+        "---\n"
+        "2026-07-08 | p | NEW | a | evidence: e\n"
+        "2026-07-08 | q | NEW | b | evidence: e\n"
+    )
     assert curator.pending_candidates(f) == 2
 
 

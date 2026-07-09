@@ -5,11 +5,17 @@ from __future__ import annotations
 # global decisions are made from cross-project evidence (the candidates queue)
 # by a single writer — never by N project agents with keyhole views.
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
 
 from .agent import AGENT_TIMEOUT, build_env, resolve_config
+
+# Real queue entries are one line each, "YYYY-MM-DD | <project> | ...", per
+# prompts/gardener.md task 6 — no markdown bullet prefix. This excludes the
+# file's own header/description/"Format: ..." spec lines and "---" separator.
+_ENTRY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\s*\|")
 
 
 def pending_candidates(path) -> int:
@@ -18,7 +24,7 @@ def pending_candidates(path) -> int:
         text = Path(path).read_text()
     except OSError:
         return 0
-    return sum(1 for line in text.splitlines() if line.lstrip().startswith("- "))
+    return sum(1 for line in text.splitlines() if _ENTRY_RE.match(line.lstrip()))
 
 
 def build_curator_command(prompt_path, cfg, model, tools, claude_bin,

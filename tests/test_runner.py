@@ -90,7 +90,7 @@ def test_run_once_fail_open(tmp_path):
 
 
 def _cand_line(project="factors"):
-    return f"- 2026-07-08 | {project} | NEW | uses pnpm everywhere | evidence: said so\n"
+    return f"2026-07-08 | {project} | NEW | uses pnpm everywhere | evidence: said so\n"
 
 
 def test_run_once_curates_when_queue_nonempty(tmp_path, monkeypatch):
